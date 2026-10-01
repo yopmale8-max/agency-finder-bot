@@ -1,0 +1,35 @@
+name: Run Agency Scraper Daily
+
+on:
+  schedule:
+    - cron: '0 21 * * *'   # 21:00 UTC = 5:00 AM Philippine Time (next day)
+  workflow_dispatch:        # lets you trigger it manually from the Actions tab too
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 gspread google-auth
+
+      - name: Recreate credentials.json from secret
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+
+      - name: Run the scraper (auto-retries on transient failure)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 2
+          command: python scraper.py
+
+      - name: Ping Apps Script watchdog (self-heals missing triggers)
+        run: |
+          curl -s "${{ secrets.APPS_SCRIPT_URL }}?action=runWatchdog&key=${{ secrets.APP_SHARED_KEY }}"
