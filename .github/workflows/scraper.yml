@@ -18,18 +18,49 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 gspread google-auth
+        run: pip install -r requirements.txt
 
       - name: Recreate credentials.json from secret
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python -c "import os; from pathlib import Path; Path('credentials.json').write_text(os.environ['GOOGLE_CREDENTIALS'], encoding='utf-8')"
 
-      - name: Run the scraper (auto-retries on transient failure)
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 15
-          max_attempts: 2
-          command: python scraper.py
+      - name: Run scraper and send daily report
+        id: scraper
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          AGENCY_FINDER_SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          AGENCY_FINDER_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          AGENCY_FINDER_SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          AGENCY_FINDER_SMTP_TO: ${{ secrets.SMTP_TO }}
+          AGENCY_FINDER_SMTP_HOST: ${{ vars.SMTP_HOST }}
+          AGENCY_FINDER_SMTP_PORT: ${{ vars.SMTP_PORT }}
+        run: python -u scraper.py
 
       - name: Ping Apps Script watchdog (self-heals missing triggers)
+        id: watchdog
+        if: steps.scraper.outcome == 'success'
+        env:
+          APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
+          APP_SHARED_KEY: ${{ secrets.APP_SHARED_KEY }}
         run: |
-          curl -s "${{ secrets.APPS_SCRIPT_URL }}?action=runWatchdog&key=${{ secrets.APP_SHARED_KEY }}"
+          curl --fail --silent --show-error --max-time 30 \
+            "${APPS_SCRIPT_URL}?action=runWatchdog&key=${APP_SHARED_KEY}"
+
+      - name: Add run result to summary
+        if: always()
+        env:
+          SCRAPER_OUTCOME: ${{ steps.scraper.outcome }}
+          WATCHDOG_OUTCOME: ${{ steps.watchdog.outcome }}
+        run: |
+          {
+            echo "## Agency Finder daily scraper"
+            echo "- Scraper/email outcome: ${SCRAPER_OUTCOME:-not started}"
+            echo "- Apps Script watchdog outcome: ${WATCHDOG_OUTCOME:-not run}"
+            echo "- Detailed logs: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark failed scrape or report as a failed workflow
+        if: steps.scraper.outcome == 'failure'
+        run: exit 1
