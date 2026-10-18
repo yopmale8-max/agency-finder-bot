@@ -2,8 +2,17 @@ name: Run Agency Scraper Daily
 
 on:
   schedule:
-    - cron: '0 21 * * *'   # 21:00 UTC = 5:00 AM Philippine Time (next day)
-  workflow_dispatch:        # lets you trigger it manually from the Actions tab too
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: Choose a real scrape or a safe email-only test
+        required: true
+        type: choice
+        options:
+          - scrape
+          - email-test
+        default: scrape
 
 jobs:
   scrape:
@@ -20,27 +29,34 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Recreate credentials.json from secret
+      - name: Create Google credentials
+        if: inputs.run_mode != 'email-test'
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: python -c "import os; from pathlib import Path; Path('credentials.json').write_text(os.environ['GOOGLE_CREDENTIALS'], encoding='utf-8')"
 
-      - name: Run scraper and send daily report
+      - name: Run scraper or email test
         id: scraper
         continue-on-error: true
         timeout-minutes: 20
         env:
+          RUN_MODE: ${{ inputs.run_mode || 'scrape' }}
           AGENCY_FINDER_SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           AGENCY_FINDER_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           AGENCY_FINDER_SMTP_FROM: ${{ secrets.SMTP_FROM }}
           AGENCY_FINDER_SMTP_TO: ${{ secrets.SMTP_TO }}
           AGENCY_FINDER_SMTP_HOST: ${{ vars.SMTP_HOST }}
           AGENCY_FINDER_SMTP_PORT: ${{ vars.SMTP_PORT }}
-        run: python -u scraper.py
+        run: |
+          if [ "$RUN_MODE" = "email-test" ]; then
+            python -u scraper.py --email-test
+          else
+            python -u scraper.py
+          fi
 
-      - name: Ping Apps Script watchdog (self-heals missing triggers)
+      - name: Ping Apps Script watchdog
         id: watchdog
-        if: steps.scraper.outcome == 'success'
+        if: steps.scraper.outcome == 'success' && inputs.run_mode != 'email-test'
         env:
           APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
           APP_SHARED_KEY: ${{ secrets.APP_SHARED_KEY }}
@@ -48,19 +64,21 @@ jobs:
           curl --fail --silent --show-error --max-time 30 \
             "${APPS_SCRIPT_URL}?action=runWatchdog&key=${APP_SHARED_KEY}"
 
-      - name: Add run result to summary
+      - name: Add result to summary
         if: always()
         env:
           SCRAPER_OUTCOME: ${{ steps.scraper.outcome }}
           WATCHDOG_OUTCOME: ${{ steps.watchdog.outcome }}
+          RUN_MODE: ${{ inputs.run_mode || 'scheduled scrape' }}
         run: |
           {
             echo "## Agency Finder daily scraper"
+            echo "- Run mode: ${RUN_MODE}"
             echo "- Scraper/email outcome: ${SCRAPER_OUTCOME:-not started}"
             echo "- Apps Script watchdog outcome: ${WATCHDOG_OUTCOME:-not run}"
             echo "- Detailed logs: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Mark failed scrape or report as a failed workflow
+      - name: Mark scraper or email failure
         if: steps.scraper.outcome == 'failure'
         run: exit 1
