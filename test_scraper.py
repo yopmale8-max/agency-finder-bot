@@ -251,6 +251,19 @@ class ScraperTests(unittest.TestCase):
             "A1:H1", [scraper.SHEET_HEADERS], value_input_option="RAW"
         )
 
+    def test_blank_header_row_is_initialized(self):
+        spreadsheet = Mock()
+        sheet = spreadsheet.worksheet.return_value
+        sheet.get_all_values.return_value = [[]]
+
+        result_sheet, existing_values = scraper.get_job_orders_worksheet(spreadsheet)
+
+        self.assertIs(result_sheet, sheet)
+        self.assertEqual(existing_values, [scraper.SHEET_HEADERS])
+        sheet.update.assert_called_once_with(
+            "A1:H1", [scraper.SHEET_HEADERS], value_input_option="RAW"
+        )
+
     @patch.object(scraper, "send_daily_report")
     @patch.object(scraper, "discover_agencies", return_value={})
     @patch.object(scraper, "log_system_event")

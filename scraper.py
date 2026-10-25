@@ -290,7 +290,7 @@ def get_job_orders_worksheet(spreadsheet):
         )
 
     existing_values = sheet.get_all_values()
-    if not existing_values:
+    if not existing_values or not any(str(value).strip() for value in existing_values[0]):
         sheet.update("A1:H1", [SHEET_HEADERS], value_input_option="RAW")
         existing_values = [SHEET_HEADERS]
     validate_sheet_headers(existing_values)
