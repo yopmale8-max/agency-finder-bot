@@ -29,9 +29,9 @@ Optional Actions variables:
 - `SMTP_HOST`: defaults to `smtp.gmail.com`.
 - `SMTP_PORT`: defaults to `587`.
 
-The scraper selects its destination spreadsheet by ID, so its title can change
-without breaking access. The service account must have Editor access to that
-spreadsheet.
+The scraper selects its destination spreadsheet and worksheet by ID, so their
+titles can change without breaking access. The service account must have Editor
+access to that spreadsheet.
 
 Enable GitHub Actions failure notifications in your GitHub notification
 settings as a backup if email delivery itself is unavailable. The workflow

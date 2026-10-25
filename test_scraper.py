@@ -246,7 +246,7 @@ class ScraperTests(unittest.TestCase):
         log_event.side_effect = lambda *args: events.append("system-log")
         sheet = Mock()
         sheet.get_all_values.return_value = [scraper.SHEET_HEADERS]
-        authorize.return_value.open_by_key.return_value.sheet1 = sheet
+        authorize.return_value.open_by_key.return_value.get_worksheet_by_id.return_value = sheet
 
         with patch.object(scraper.time, "sleep"):
             result = scraper.run_scraper()
@@ -254,6 +254,9 @@ class ScraperTests(unittest.TestCase):
         self.assertFalse(result)
         credentials.assert_called_once()
         authorize.return_value.open_by_key.assert_called_once_with(scraper.SPREADSHEET_ID)
+        authorize.return_value.open_by_key.return_value.get_worksheet_by_id.assert_called_once_with(
+            scraper.WORKSHEET_ID
+        )
         print_traceback.assert_called_once()
         discover.assert_called_once()
         scrape_profile.assert_called_once()
