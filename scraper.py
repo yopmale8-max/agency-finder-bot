@@ -19,7 +19,7 @@ from google.oauth2.service_account import Credentials
 
 CUTOFF_DAYS = 365
 ROWS_PER_PAGE = 100
-SHEET_NAME = "Abroad Agencies"
+SPREADSHEET_ID = "1H7QE2rZ4TiYl4PZlYplciCNSKLKPhbLY4aW7ikEgIOk"
 BASE_URL = "https://nr-review.com"
 REPORT_RECIPIENT = "yopmale8@gmail.com"
 SHEET_HEADERS = [
@@ -82,7 +82,7 @@ def get_google_credentials():
 def log_system_event(client, component, status, details):
     """Writes a row to the SystemLog tab so scraper health is visible."""
     try:
-        sheet = client.open(SHEET_NAME).worksheet("SystemLog")
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet("SystemLog")
         sheet.append_row(
             [datetime.datetime.now().isoformat(), component, status, str(details)[:500]]
         )
@@ -393,7 +393,7 @@ def run_scraper():
         print("Connecting to Google Sheets...")
         credentials = get_google_credentials()
         client = gspread.authorize(credentials)
-        sheet = client.open(SHEET_NAME).sheet1
+        sheet = client.open_by_key(SPREADSHEET_ID).sheet1
         existing_values = sheet.get_all_values()
         validate_sheet_headers(existing_values)
 
