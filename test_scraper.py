@@ -231,6 +231,26 @@ class ScraperTests(unittest.TestCase):
 
         client.open_by_key.assert_called_once_with(scraper.SPREADSHEET_ID)
 
+    def test_missing_job_orders_worksheet_is_created_and_initialized(self):
+        spreadsheet = Mock()
+        sheet = spreadsheet.add_worksheet.return_value
+        sheet.get_all_values.return_value = []
+        spreadsheet.worksheet.side_effect = scraper.gspread.exceptions.WorksheetNotFound
+
+        result_sheet, existing_values = scraper.get_job_orders_worksheet(spreadsheet)
+
+        self.assertIs(result_sheet, sheet)
+        self.assertEqual(existing_values, [scraper.SHEET_HEADERS])
+        spreadsheet.worksheet.assert_called_once_with(scraper.WORKSHEET_TITLE)
+        spreadsheet.add_worksheet.assert_called_once_with(
+            title=scraper.WORKSHEET_TITLE,
+            rows=1000,
+            cols=len(scraper.SHEET_HEADERS),
+        )
+        sheet.update.assert_called_once_with(
+            "A1:H1", [scraper.SHEET_HEADERS], value_input_option="RAW"
+        )
+
     @patch.object(scraper, "send_daily_report")
     @patch.object(scraper, "discover_agencies", return_value={})
     @patch.object(scraper, "log_system_event")
@@ -242,7 +262,8 @@ class ScraperTests(unittest.TestCase):
     ):
         sheet = Mock()
         sheet.get_all_values.return_value = []
-        authorize.return_value.open_by_key.return_value.get_worksheet_by_id.return_value = sheet
+        spreadsheet = authorize.return_value.open_by_key.return_value
+        spreadsheet.worksheet.return_value = sheet
 
         result = scraper.run_scraper()
 
@@ -251,6 +272,7 @@ class ScraperTests(unittest.TestCase):
             "A1:H1", [scraper.SHEET_HEADERS], value_input_option="RAW"
         )
         sheet.spreadsheet.batch_update.assert_not_called()
+        spreadsheet.worksheet.assert_called_once_with(scraper.WORKSHEET_TITLE)
         discover.assert_called_once()
         self.assertIn("No agency profiles were discovered", send_report.call_args.args[4])
 
@@ -269,7 +291,8 @@ class ScraperTests(unittest.TestCase):
         log_event.side_effect = lambda *args: events.append("system-log")
         sheet = Mock()
         sheet.get_all_values.return_value = [scraper.SHEET_HEADERS]
-        authorize.return_value.open_by_key.return_value.get_worksheet_by_id.return_value = sheet
+        spreadsheet = authorize.return_value.open_by_key.return_value
+        spreadsheet.worksheet.return_value = sheet
 
         with patch.object(scraper.time, "sleep"):
             result = scraper.run_scraper()
@@ -277,9 +300,7 @@ class ScraperTests(unittest.TestCase):
         self.assertFalse(result)
         credentials.assert_called_once()
         authorize.return_value.open_by_key.assert_called_once_with(scraper.SPREADSHEET_ID)
-        authorize.return_value.open_by_key.return_value.get_worksheet_by_id.assert_called_once_with(
-            scraper.WORKSHEET_ID
-        )
+        spreadsheet.worksheet.assert_called_once_with(scraper.WORKSHEET_TITLE)
         print_traceback.assert_called_once()
         discover.assert_called_once()
         scrape_profile.assert_called_once()

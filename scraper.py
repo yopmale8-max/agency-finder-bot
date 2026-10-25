@@ -20,7 +20,7 @@ from google.oauth2.service_account import Credentials
 CUTOFF_DAYS = 365
 ROWS_PER_PAGE = 100
 SPREADSHEET_ID = "1H7QE2rZ4TiYl4PZlYplciCNSKLKPhbLY4aW7ikEgIOk"
-WORKSHEET_ID = 1673258361
+WORKSHEET_TITLE = "Scraper Job Orders"
 BASE_URL = "https://nr-review.com"
 REPORT_RECIPIENT = "yopmale8@gmail.com"
 SHEET_HEADERS = [
@@ -278,6 +278,25 @@ def validate_sheet_headers(existing_values):
         )
 
 
+def get_job_orders_worksheet(spreadsheet):
+    try:
+        sheet = spreadsheet.worksheet(WORKSHEET_TITLE)
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"Creating dedicated worksheet '{WORKSHEET_TITLE}'...")
+        sheet = spreadsheet.add_worksheet(
+            title=WORKSHEET_TITLE,
+            rows=1000,
+            cols=len(SHEET_HEADERS),
+        )
+
+    existing_values = sheet.get_all_values()
+    if not existing_values:
+        sheet.update("A1:H1", [SHEET_HEADERS], value_input_option="RAW")
+        existing_values = [SHEET_HEADERS]
+    validate_sheet_headers(existing_values)
+    return sheet, existing_values
+
+
 def replace_sheet_rows_atomically(sheet, rows):
     """Replaces A2:H in one Sheets API batch, preserving old data on failure."""
     required_row_count = len(rows) + 1
@@ -394,12 +413,8 @@ def run_scraper():
         print("Connecting to Google Sheets...")
         credentials = get_google_credentials()
         client = gspread.authorize(credentials)
-        sheet = client.open_by_key(SPREADSHEET_ID).get_worksheet_by_id(WORKSHEET_ID)
-        existing_values = sheet.get_all_values()
-        if not existing_values:
-            sheet.update("A1:H1", [SHEET_HEADERS], value_input_option="RAW")
-            existing_values = [SHEET_HEADERS]
-        validate_sheet_headers(existing_values)
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        sheet, existing_values = get_job_orders_worksheet(spreadsheet)
 
         cutoff_date = datetime.date.today() - datetime.timedelta(days=CUTOFF_DAYS)
         print(f"Keeping jobs approved on/after {cutoff_date}")
