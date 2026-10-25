@@ -20,7 +20,7 @@ from google.oauth2.service_account import Credentials
 CUTOFF_DAYS = 365
 ROWS_PER_PAGE = 100
 SPREADSHEET_ID = "1H7QE2rZ4TiYl4PZlYplciCNSKLKPhbLY4aW7ikEgIOk"
-WORKSHEET_ID = 1297456985
+WORKSHEET_ID = 1673258361
 BASE_URL = "https://nr-review.com"
 REPORT_RECIPIENT = "yopmale8@gmail.com"
 SHEET_HEADERS = [
@@ -396,6 +396,9 @@ def run_scraper():
         client = gspread.authorize(credentials)
         sheet = client.open_by_key(SPREADSHEET_ID).get_worksheet_by_id(WORKSHEET_ID)
         existing_values = sheet.get_all_values()
+        if not existing_values:
+            sheet.update("A1:H1", [SHEET_HEADERS], value_input_option="RAW")
+            existing_values = [SHEET_HEADERS]
         validate_sheet_headers(existing_values)
 
         cutoff_date = datetime.date.today() - datetime.timedelta(days=CUTOFF_DAYS)

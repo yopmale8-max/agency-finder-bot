@@ -31,7 +31,9 @@ Optional Actions variables:
 
 The scraper selects its destination spreadsheet and worksheet by ID, so their
 titles can change without breaking access. The service account must have Editor
-access to that spreadsheet.
+access to that spreadsheet. If the dedicated worksheet is empty, the scraper
+initializes its expected header row; existing non-empty worksheets with
+unexpected headers are left unchanged and reported as failures.
 
 Enable GitHub Actions failure notifications in your GitHub notification
 settings as a backup if email delivery itself is unavailable. The workflow
