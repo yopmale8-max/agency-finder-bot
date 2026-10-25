@@ -20,7 +20,7 @@ from google.oauth2.service_account import Credentials
 CUTOFF_DAYS = 365
 ROWS_PER_PAGE = 100
 SPREADSHEET_ID = "1H7QE2rZ4TiYl4PZlYplciCNSKLKPhbLY4aW7ikEgIOk"
-WORKSHEET_ID = 1297456985
+WORKSHEET_ID = 1673258361
 BASE_URL = "https://nr-review.com"
 REPORT_RECIPIENT = "yopmale8@gmail.com"
 SHEET_HEADERS = [
