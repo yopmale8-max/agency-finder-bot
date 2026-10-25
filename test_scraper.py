@@ -224,6 +224,13 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(body["requests"][0]["updateCells"]["range"]["startRowIndex"], 1)
         self.assertEqual(body["requests"][1]["repeatCell"]["range"]["startRowIndex"], 2)
 
+    def test_system_log_opens_spreadsheet_by_id(self):
+        client = Mock()
+
+        scraper.log_system_event(client, "Scraper", "ERROR", "test failure")
+
+        client.open_by_key.assert_called_once_with(scraper.SPREADSHEET_ID)
+
     @patch.object(scraper, "send_daily_report")
     @patch.object(scraper, "discover_agencies", return_value={"https://nr-review.test/1": "Agency"})
     @patch.object(scraper, "scrape_agency_profile", side_effect=RuntimeError("profile changed"))
@@ -239,13 +246,14 @@ class ScraperTests(unittest.TestCase):
         log_event.side_effect = lambda *args: events.append("system-log")
         sheet = Mock()
         sheet.get_all_values.return_value = [scraper.SHEET_HEADERS]
-        authorize.return_value.open.return_value.sheet1 = sheet
+        authorize.return_value.open_by_key.return_value.sheet1 = sheet
 
         with patch.object(scraper.time, "sleep"):
             result = scraper.run_scraper()
 
         self.assertFalse(result)
         credentials.assert_called_once()
+        authorize.return_value.open_by_key.assert_called_once_with(scraper.SPREADSHEET_ID)
         print_traceback.assert_called_once()
         discover.assert_called_once()
         scrape_profile.assert_called_once()
