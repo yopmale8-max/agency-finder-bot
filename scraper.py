@@ -48,14 +48,31 @@ class ScrapeError(RuntimeError):
 def get_google_credentials():
     """Resolves service account credentials from local file or environment variable."""
     credentials_path = Path(__file__).resolve().with_name("credentials.json")
+    env_creds = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
+    errors = []
+    last_error = None
+
     if credentials_path.is_file():
-        return Credentials.from_service_account_file(str(credentials_path), scopes=SCOPES)
-    
-    env_creds = os.environ.get("GOOGLE_CREDENTIALS")
+        try:
+            return Credentials.from_service_account_file(str(credentials_path), scopes=SCOPES)
+        except Exception as error:
+            last_error = error
+            errors.append(f"credentials.json: {error}")
+            if env_creds:
+                print(f"Could not load local credentials.json; trying GOOGLE_CREDENTIALS: {error}")
+
     if env_creds:
-        creds_info = json.loads(env_creds)
-        return Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-    
+        try:
+            creds_info = json.loads(env_creds)
+            if not isinstance(creds_info, dict):
+                raise ValueError("the JSON value must be a service-account object")
+            return Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+        except Exception as error:
+            last_error = error
+            errors.append(f"GOOGLE_CREDENTIALS: {error}")
+
+    if errors:
+        raise ScrapeError("Could not load Google credentials. " + "; ".join(errors)) from last_error
     raise ScrapeError(
         "Google credentials not found. Provide either a 'credentials.json' file "
         "or set the GOOGLE_CREDENTIALS environment variable."
@@ -445,6 +462,7 @@ def run_scraper():
         )
     except Exception as email_error:
         print(f"Could not send daily report email: {email_error}")
+        traceback.print_exc()
         return False
 
     return status == "SUCCESS"

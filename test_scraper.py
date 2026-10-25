@@ -1,11 +1,102 @@
 import datetime
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import scraper
 
 
 class ScraperTests(unittest.TestCase):
+    def test_google_credentials_use_local_file_when_environment_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            module_path = Path(directory) / "scraper.py"
+            credentials_path = Path(directory) / "credentials.json"
+            credentials_path.write_text("{}", encoding="utf-8")
+            with (
+                patch.object(scraper, "__file__", str(module_path)),
+                patch.dict("os.environ", {}, clear=True),
+                patch.object(
+                    scraper.Credentials,
+                    "from_service_account_file",
+                    return_value="file credentials",
+                ) as from_file,
+                patch.object(scraper.Credentials, "from_service_account_info") as from_info,
+            ):
+                self.assertEqual(scraper.get_google_credentials(), "file credentials")
+
+        from_file.assert_called_once_with(
+            str(credentials_path.resolve()),
+            scopes=scraper.SCOPES,
+        )
+        from_info.assert_not_called()
+
+    def test_google_credentials_use_environment_when_local_file_is_missing(self):
+        credentials_info = {"type": "service_account"}
+        with tempfile.TemporaryDirectory() as directory:
+            module_path = Path(directory) / "scraper.py"
+            with (
+                patch.object(scraper, "__file__", str(module_path)),
+                patch.dict(
+                    "os.environ",
+                    {"GOOGLE_CREDENTIALS": json.dumps(credentials_info)},
+                    clear=True,
+                ),
+                patch.object(scraper.Credentials, "from_service_account_file") as from_file,
+                patch.object(
+                    scraper.Credentials,
+                    "from_service_account_info",
+                    return_value="environment credentials",
+                ) as from_info,
+            ):
+                self.assertEqual(
+                    scraper.get_google_credentials(),
+                    "environment credentials",
+                )
+
+        from_file.assert_not_called()
+        from_info.assert_called_once_with(credentials_info, scopes=scraper.SCOPES)
+
+    def test_google_credentials_fall_back_to_environment_if_local_file_is_invalid(self):
+        credentials_info = {"type": "service_account"}
+        with tempfile.TemporaryDirectory() as directory:
+            module_path = Path(directory) / "scraper.py"
+            credentials_path = Path(directory) / "credentials.json"
+            credentials_path.write_text("invalid", encoding="utf-8")
+            with (
+                patch.object(scraper, "__file__", str(module_path)),
+                patch.dict(
+                    "os.environ",
+                    {"GOOGLE_CREDENTIALS": json.dumps(credentials_info)},
+                    clear=True,
+                ),
+                patch.object(
+                    scraper.Credentials,
+                    "from_service_account_file",
+                    side_effect=ValueError("invalid local credentials"),
+                ) as from_file,
+                patch.object(
+                    scraper.Credentials,
+                    "from_service_account_info",
+                    return_value="environment credentials",
+                ) as from_info,
+            ):
+                self.assertEqual(
+                    scraper.get_google_credentials(),
+                    "environment credentials",
+                )
+
+        from_file.assert_called_once()
+        from_info.assert_called_once_with(credentials_info, scopes=scraper.SCOPES)
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_google_credentials_report_when_both_sources_are_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(scraper, "__file__", str(Path(directory) / "scraper.py")):
+                with self.assertRaisesRegex(scraper.ScrapeError, "credentials not found"):
+                    scraper.get_google_credentials()
+
     def test_parse_date_supports_source_and_common_formats(self):
         expected = datetime.date(2026, 10, 18)
         for value in (
@@ -137,11 +228,15 @@ class ScraperTests(unittest.TestCase):
     @patch.object(scraper, "discover_agencies", return_value={"https://nr-review.test/1": "Agency"})
     @patch.object(scraper, "scrape_agency_profile", side_effect=RuntimeError("profile changed"))
     @patch.object(scraper, "log_system_event")
-    @patch.object(scraper.Credentials, "from_service_account_file")
+    @patch.object(scraper, "get_google_credentials")
     @patch.object(scraper.gspread, "authorize")
+    @patch.object(scraper.traceback, "print_exc")
     def test_failed_profile_does_not_replace_sheet(
-        self, authorize, credentials, log_event, scrape_profile, discover, send_report
+        self, print_traceback, authorize, credentials, log_event, scrape_profile, discover, send_report
     ):
+        events = []
+        print_traceback.side_effect = lambda: events.append("traceback")
+        log_event.side_effect = lambda *args: events.append("system-log")
         sheet = Mock()
         sheet.get_all_values.return_value = [scraper.SHEET_HEADERS]
         authorize.return_value.open.return_value.sheet1 = sheet
@@ -151,9 +246,11 @@ class ScraperTests(unittest.TestCase):
 
         self.assertFalse(result)
         credentials.assert_called_once()
+        print_traceback.assert_called_once()
         discover.assert_called_once()
         scrape_profile.assert_called_once()
         log_event.assert_called_once()
+        self.assertEqual(events, ["traceback", "system-log"])
         sheet.spreadsheet.batch_update.assert_not_called()
         report = send_report.call_args.args
         self.assertEqual(report[:4], ("FAILED", 0, 0, 1))
