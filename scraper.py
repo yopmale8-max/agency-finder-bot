@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 from email.message import EmailMessage
 from collections import Counter
 from pathlib import Path
@@ -7,6 +8,7 @@ import os
 import smtplib
 import ssl
 import time
+import traceback
 from urllib.parse import urljoin
 
 import gspread
@@ -41,6 +43,23 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AgencyFinderBot/1.0)"}
 
 class ScrapeError(RuntimeError):
     """Raised when source data cannot be trusted as a complete scrape."""
+
+
+def get_google_credentials():
+    """Resolves service account credentials from local file or environment variable."""
+    credentials_path = Path(__file__).resolve().with_name("credentials.json")
+    if credentials_path.is_file():
+        return Credentials.from_service_account_file(str(credentials_path), scopes=SCOPES)
+    
+    env_creds = os.environ.get("GOOGLE_CREDENTIALS")
+    if env_creds:
+        creds_info = json.loads(env_creds)
+        return Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    
+    raise ScrapeError(
+        "Google credentials not found. Provide either a 'credentials.json' file "
+        "or set the GOOGLE_CREDENTIALS environment variable."
+    )
 
 
 def log_system_event(client, component, status, details):
@@ -355,10 +374,7 @@ def run_scraper():
 
     try:
         print("Connecting to Google Sheets...")
-        credentials_path = Path(__file__).resolve().with_name("credentials.json")
-        credentials = Credentials.from_service_account_file(
-            str(credentials_path), scopes=SCOPES
-        )
+        credentials = get_google_credentials()
         client = gspread.authorize(credentials)
         sheet = client.open(SHEET_NAME).sheet1
         existing_values = sheet.get_all_values()
@@ -417,6 +433,7 @@ def run_scraper():
     except Exception as error:
         details = str(error)
         print(f"Scraper failed; existing worksheet data was not intentionally cleared: {error}")
+        traceback.print_exc()
         if client is not None:
             log_system_event(client, "Scraper", "ERROR", details)
 
