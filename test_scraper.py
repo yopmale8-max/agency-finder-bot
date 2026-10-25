@@ -232,6 +232,29 @@ class ScraperTests(unittest.TestCase):
         client.open_by_key.assert_called_once_with(scraper.SPREADSHEET_ID)
 
     @patch.object(scraper, "send_daily_report")
+    @patch.object(scraper, "discover_agencies", return_value={})
+    @patch.object(scraper, "log_system_event")
+    @patch.object(scraper, "get_google_credentials")
+    @patch.object(scraper.gspread, "authorize")
+    @patch.object(scraper.traceback, "print_exc")
+    def test_empty_destination_sheet_is_initialized_with_headers(
+        self, print_traceback, authorize, credentials, log_event, discover, send_report
+    ):
+        sheet = Mock()
+        sheet.get_all_values.return_value = []
+        authorize.return_value.open_by_key.return_value.get_worksheet_by_id.return_value = sheet
+
+        result = scraper.run_scraper()
+
+        self.assertFalse(result)
+        sheet.update.assert_called_once_with(
+            "A1:H1", [scraper.SHEET_HEADERS], value_input_option="RAW"
+        )
+        sheet.spreadsheet.batch_update.assert_not_called()
+        discover.assert_called_once()
+        self.assertIn("No agency profiles were discovered", send_report.call_args.args[4])
+
+    @patch.object(scraper, "send_daily_report")
     @patch.object(scraper, "discover_agencies", return_value={"https://nr-review.test/1": "Agency"})
     @patch.object(scraper, "scrape_agency_profile", side_effect=RuntimeError("profile changed"))
     @patch.object(scraper, "log_system_event")

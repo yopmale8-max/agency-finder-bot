@@ -396,6 +396,9 @@ def run_scraper():
         client = gspread.authorize(credentials)
         sheet = client.open_by_key(SPREADSHEET_ID).get_worksheet_by_id(WORKSHEET_ID)
         existing_values = sheet.get_all_values()
+        if not existing_values:
+            sheet.update("A1:H1", [SHEET_HEADERS], value_input_option="RAW")
+            existing_values = [SHEET_HEADERS]
         validate_sheet_headers(existing_values)
 
         cutoff_date = datetime.date.today() - datetime.timedelta(days=CUTOFF_DAYS)
