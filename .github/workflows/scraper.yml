@@ -47,6 +47,7 @@ jobs:
           AGENCY_FINDER_SMTP_TO: ${{ secrets.SMTP_TO }}
           AGENCY_FINDER_SMTP_HOST: ${{ vars.SMTP_HOST }}
           AGENCY_FINDER_SMTP_PORT: ${{ vars.SMTP_PORT }}
+          MAX_FAILURE_RATE: ${{ vars.MAX_FAILURE_RATE }}
         run: |
           if [ "$RUN_MODE" = "email-test" ]; then
             python -u scraper.py --email-test

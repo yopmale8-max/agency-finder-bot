@@ -28,6 +28,21 @@ Optional Actions variables:
 
 - `SMTP_HOST`: defaults to `smtp.gmail.com`.
 - `SMTP_PORT`: defaults to `587`.
+- `MAX_FAILURE_RATE`: maximum fraction of agency profiles that can fail while
+  still allowing a partial sheet update. It defaults to `0.02` (2%) when unset
+  or empty and must be between `0` and `1`.
+
+The scraper aborts without replacing sheet data if more than 5% of job-order
+rows are malformed, any profile has an unexpected table layout, or no recent
+job orders are parsed. Failed profiles below the configured limit retain their
+previous rows; SystemLog records their names and reasons. A repeated agency
+failure can be tracked across daily SystemLog entries.
+
+Fetches use two attempts, a 4-second request timeout, and a 0.25-second retry
+delay. Profile pages are fetched with at most eight concurrent workers. For
+251 agencies and 62 listing pages, the bounded fetch phase is about 13.5
+minutes, leaving approximately 6.5 minutes of the scraper step's 20-minute
+timeout for Sheets and email work.
 
 The scraper writes job-order data to the dedicated `Scraper Job Orders`
 worksheet in the configured spreadsheet, creating it if it is missing. The
@@ -42,3 +57,11 @@ also marks failed scrapes and email errors as failed runs and adds a summary
 with a direct link to the run logs.
 
 Never commit service-account JSON or SMTP credentials into the repository.
+
+## Run the scraper tests
+
+From this repository's root, run:
+
+```sh
+python -m unittest discover -s . -p test_scraper.py -v
+```
