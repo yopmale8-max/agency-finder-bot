@@ -29,6 +29,11 @@ Optional Actions variables:
 - `SMTP_HOST`: defaults to `smtp.gmail.com`.
 - `SMTP_PORT`: defaults to `587`.
 
+Listing pages use three attempts with a 30-second request timeout and a
+1-second retry delay. Profile fetches retain the default three attempts and
+15-second request timeout. The `SystemLog` worksheet is created with headers
+if it is missing.
+
 The scraper writes job-order data to the dedicated `Scraper Job Orders`
 worksheet in the configured spreadsheet, creating it if it is missing. The
 service account must have Editor access to that spreadsheet. If the dedicated

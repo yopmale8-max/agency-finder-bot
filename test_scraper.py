@@ -131,6 +131,12 @@ class ScraperTests(unittest.TestCase):
 
         self.assertEqual(get.call_count, 2)
         self.assertEqual(len(agencies), 100)
+        self.assertTrue(
+            all(
+                call.kwargs["timeout"] == scraper.LISTING_HTTP_TIMEOUT_SECONDS
+                for call in get.call_args_list
+            )
+        )
         self.assertIn("https://nr-review.com/Agency/0", agencies)
         sleep.assert_called_once_with(0.5)
 
@@ -156,7 +162,20 @@ class ScraperTests(unittest.TestCase):
         with self.assertRaises(scraper.ScrapeError):
             scraper.discover_agencies()
         self.assertEqual(get.call_count, 4)
-        self.assertEqual([call.args for call in sleep.call_args_list], [(0.5,), (2,), (2,)])
+        self.assertTrue(
+            all(
+                call.kwargs["timeout"] == scraper.LISTING_HTTP_TIMEOUT_SECONDS
+                for call in get.call_args_list[1:]
+            )
+        )
+        self.assertEqual(
+            [call.args for call in sleep.call_args_list],
+            [
+                (0.5,),
+                (scraper.LISTING_RETRY_DELAY_SECONDS,),
+                (scraper.LISTING_RETRY_DELAY_SECONDS,),
+            ],
+        )
 
     @patch.object(scraper, "fetch_with_retry")
     def test_profile_scrape_returns_expected_rows(self, fetch):
@@ -230,6 +249,24 @@ class ScraperTests(unittest.TestCase):
         scraper.log_system_event(client, "Scraper", "ERROR", "test failure")
 
         client.open_by_key.assert_called_once_with(scraper.SPREADSHEET_ID)
+
+    def test_system_log_tab_is_created_with_headers_when_missing(self):
+        client = Mock()
+        spreadsheet = client.open_by_key.return_value
+        spreadsheet.worksheet.side_effect = scraper.gspread.exceptions.WorksheetNotFound
+        sheet = spreadsheet.add_worksheet.return_value
+
+        scraper.log_system_event(client, "Scraper", "ERROR", "test failure")
+
+        spreadsheet.add_worksheet.assert_called_once_with(
+            title=scraper.SYSTEM_LOG_TITLE,
+            rows=1000,
+            cols=len(scraper.SYSTEM_LOG_HEADERS),
+        )
+        sheet.update.assert_called_once_with(
+            "A1:D1", [scraper.SYSTEM_LOG_HEADERS], value_input_option="RAW"
+        )
+        sheet.append_row.assert_called_once()
 
     def test_missing_job_orders_worksheet_is_created_and_initialized(self):
         spreadsheet = Mock()
@@ -375,6 +412,19 @@ class ScraperTests(unittest.TestCase):
             "TEST", 0, 0, 0, "This is a test; no scrape was run."
         )
         run_scraper.assert_not_called()
+
+    @patch.dict("os.environ", {"AGENCY_FINDER_SMTP_TO": ""}, clear=True)
+    @patch.object(scraper, "send_daily_report")
+    @patch("builtins.print")
+    @patch("sys.argv", ["scraper.py", "--email-test"])
+    def test_email_test_logs_the_default_recipient_when_smtp_to_is_empty(
+        self, print_output, send_report
+    ):
+        self.assertEqual(scraper.main(), 0)
+
+        print_output.assert_called_once_with(
+            f"Test email sent to {scraper.REPORT_RECIPIENT}."
+        )
 
 
 if __name__ == "__main__":
