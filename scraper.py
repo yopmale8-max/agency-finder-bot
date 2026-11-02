@@ -249,9 +249,11 @@ def scrape_agency_profile(agency_name, profile_url, cutoff_date, debug_used):
         if not cells:
             continue
         if len(cells) < 5:
-            raise ScrapeError(
-                f"{agency_name}: job-orders row {row_number} has only {len(cells)} cells."
-            )
+    print(
+        f"WARNING: {agency_name}: job-orders row {row_number} has only "
+        f"{len(cells)} cells; skipping malformed row."
+    )
+    continue
 
         job_title, location, vacancy = cells[0], cells[1], cells[2]
         approval_date_str = cells[4]
