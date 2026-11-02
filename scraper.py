@@ -19,8 +19,13 @@ from google.oauth2.service_account import Credentials
 
 CUTOFF_DAYS = 365
 ROWS_PER_PAGE = 100
+LISTING_HTTP_TIMEOUT_SECONDS = 30
+LISTING_FETCH_ATTEMPTS = 3
+LISTING_RETRY_DELAY_SECONDS = 1
 SPREADSHEET_ID = "1H7QE2rZ4TiYl4PZlYplciCNSKLKPhbLY4aW7ikEgIOk"
 WORKSHEET_TITLE = "Scraper Job Orders"
+SYSTEM_LOG_TITLE = "SystemLog"
+SYSTEM_LOG_HEADERS = ["Timestamp", "Component", "Status", "Details"]
 BASE_URL = "https://nr-review.com"
 REPORT_RECIPIENT = "yopmale8@gmail.com"
 SHEET_HEADERS = [
@@ -40,6 +45,11 @@ SCOPES = [
 ]
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AgencyFinderBot/1.0)"}
+
+
+def get_report_recipient():
+    recipient = os.environ.get("AGENCY_FINDER_SMTP_TO", "").strip()
+    return recipient or REPORT_RECIPIENT
 
 
 class ScrapeError(RuntimeError):
@@ -83,7 +93,18 @@ def get_google_credentials():
 def log_system_event(client, component, status, details):
     """Writes a row to the SystemLog tab so scraper health is visible."""
     try:
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet("SystemLog")
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        try:
+            sheet = spreadsheet.worksheet(SYSTEM_LOG_TITLE)
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = spreadsheet.add_worksheet(
+                title=SYSTEM_LOG_TITLE,
+                rows=1000,
+                cols=len(SYSTEM_LOG_HEADERS),
+            )
+            sheet.update(
+                "A1:D1", [SYSTEM_LOG_HEADERS], value_input_option="RAW"
+            )
         sheet.append_row(
             [datetime.datetime.now().isoformat(), component, status, str(details)[:500]]
         )
@@ -91,11 +112,11 @@ def log_system_event(client, component, status, details):
         print(f"Could not write to SystemLog: {error}")
 
 
-def fetch_with_retry(url, max_attempts=3, delay=2):
+def fetch_with_retry(url, max_attempts=3, delay=2, timeout=15):
     last_error = None
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(url, headers=HEADERS, timeout=15)
+            response = requests.get(url, headers=HEADERS, timeout=timeout)
             response.raise_for_status()
             return response
         except requests.RequestException as error:
@@ -151,7 +172,12 @@ def discover_agencies():
 
     while True:
         url = f"{BASE_URL}/FindJobs?page={page}&rows={ROWS_PER_PAGE}"
-        response = fetch_with_retry(url)
+        response = fetch_with_retry(
+            url,
+            max_attempts=LISTING_FETCH_ATTEMPTS,
+            delay=LISTING_RETRY_DELAY_SECONDS,
+            timeout=LISTING_HTTP_TIMEOUT_SECONDS,
+        )
         soup = BeautifulSoup(response.text, "html.parser")
         table = find_data_table(soup, ["Job Title", "Agency"])
         if table is None:
@@ -364,7 +390,7 @@ def send_daily_report(status, scraped_count, new_count, agency_count, details=""
     smtp_username = os.environ.get("AGENCY_FINDER_SMTP_USERNAME", "").strip()
     smtp_password = os.environ.get("AGENCY_FINDER_SMTP_PASSWORD", "")
     sender = (os.environ.get("AGENCY_FINDER_SMTP_FROM") or smtp_username).strip()
-    recipient = (os.environ.get("AGENCY_FINDER_SMTP_TO") or REPORT_RECIPIENT).strip()
+    recipient = get_report_recipient()
 
     if not smtp_username or not smtp_password or not sender or not recipient:
         raise RuntimeError(
@@ -476,8 +502,7 @@ def run_scraper():
     try:
         send_daily_report(status, scraped_count, new_count, agency_count, details)
         print(
-            f"Daily {status.lower()} report sent to "
-            f"{os.environ.get('AGENCY_FINDER_SMTP_TO', REPORT_RECIPIENT)}."
+            f"Daily {status.lower()} report sent to {get_report_recipient()}."
         )
     except Exception as email_error:
         print(f"Could not send daily report email: {email_error}")
@@ -502,7 +527,7 @@ def main():
         except Exception as error:
             print(f"Could not send test email: {error}")
             return 1
-        print(f"Test email sent to {os.environ.get('AGENCY_FINDER_SMTP_TO', REPORT_RECIPIENT)}.")
+        print(f"Test email sent to {get_report_recipient()}.")
         return 0
 
     return 0 if run_scraper() else 1
